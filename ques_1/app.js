@@ -1,49 +1,42 @@
-const http = require('http');
-const url = require('url');
-const https = require('https');
+const express = require('express');
+const axios = require('axios');
 
-const server = http.createServer((req, res) => {
-    const queryParams = url.parse(req.url, true).query;
-    const urls = queryParams.url || [];
+const app = express();
+const PORT = 8008;
 
-    const mergedNumbers = new Set();
+app.get('/numbers', async (req, res) => {
+    const urls = req.query.url;
 
-    const fetchNumbers = (url) => {
-        return new Promise((resolve) => {
-            https.get(url, { timeout: 500 }, (response) => {
-                let data = '';
+    if (!urls || !Array.isArray(urls)) {
+        return res.status(400).json({ error: 'Invalid or missing URL parameter' });
+    }
 
-                response.on('data', (chunk) => {
-                    data += chunk;
-                });
-
-                response.on('end', () => {
-                    try {
-                        const jsonData = JSON.parse(data);
-                        mergedNumbers.add(...jsonData.numbers);
-                    } catch (error) {
-                        // JSON parsing error or other issues, ignore
-                    }
-                    resolve();
-                });
-            }).on('error', (error) => {
-                // Request error, ignore
-                resolve();
-            });
-        });
+    const fetchData = async (url) => {
+        try {
+            const response = await axios.get(url, { timeout: 500 });
+            if (response.status === 200) {
+                return response.data.numbers || [];
+            }
+        } catch (error) {
+            console.error(`Error fetching data from ${url}: ${error.message}`);
+            return [];
+        }
     };
 
-    const fetchPromises = urls.map(fetchNumbers);
+    const mergedNumbers = [];
+    const fetchPromises = urls.map(fetchData);
 
-    Promise.all(fetchPromises).then(() => {
-        const sortedNumbers = Array.from(mergedNumbers).sort((a, b) => a - b);
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ numbers: sortedNumbers }));
+    await Promise.all(fetchPromises).then((results) => {
+        results.forEach((numbers) => {
+            mergedNumbers.push(...numbers);
+        });
     });
+
+    const uniqueSortedNumbers = Array.from(new Set(mergedNumbers)).sort((a, b) => a - b);
+
+    res.json({ numbers: uniqueSortedNumbers });
 });
 
-const PORT = 8008;
-server.listen(PORT, () => {
+app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
